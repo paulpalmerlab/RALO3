@@ -1,11 +1,5 @@
 #!/usr/bin/env python
 
-#20180815 lsurl   First build
-#20190815 mmarvin Fix bugs in horizontal gridding 
-#                 Fix bugs in vertical interpolation
-#                 Write CLOUDF to NetCDF 
-#                 Remove unused functions
-
 """sat_mod_ak.py -- calculates model and satellite columns, including Averaging Kernal applications """
 
 import numpy as np
@@ -87,18 +81,7 @@ def lateral_regrid(in_lat,in_lon,in_array,out_lat,out_lon):
     #create interpolation function
     #interp_func = RegularGridInterpolator((in_lat, in_lon), in_array, method='linear')
     interp_func = RectBivariateSpline(in_lat,in_lon,in_array)
-    
     out_array = interp_func(out_lat,out_lon)
-    
-    #create empty array
-    #out_array = np.zeros((len(out_lat),len(out_lon)))
-    
-    #fill each point in empty array
-    
-    #out_array = interp_func(np.meshgrid(out_lat,out_lon))
-    #for i in range(len(out_lat)):
-    #    for j in range(len(out_lon)):
-    #        out_array[i][j] = interp_func((out_lat[i],out_lon[j]))
     
     return out_array
 
@@ -151,8 +134,8 @@ def is_record_day(this_date,cycle_type,end_date):
         return(True)
     if cycle_type == "month" and (this_date + td(days=1)).day == 1:
         return(True)
-    if cycle_type == "season" and (this_date.strftime("%m%d") in ["0331","0630","0930","1231"]):
-        return(True)
+#    if cycle_type == "season" and (this_date.strftime("%m%d") in ["0331","0630","0930","1231"]):
+#        return(True)
     return(False)
     
 def is_read_day(this_date,option):
@@ -170,38 +153,35 @@ def make_dict(option):
 
     this_dict = {}
 
-    for spc in option.geos_species: #geos_chem species
-        this_dict[spc] = val_record("GC_"+spc,unit="molec cm-2") #column
-        this_dict[spc+"_GL"] = val_record("GC_"+spc+"_GL",unit="v/v") #ground level
-    if option.do_geos_nox:
-        this_dict["NOx"] = val_record("GC_NOx",unit="molec cm-2") #column
-        this_dict["NOx_GL"] = val_record("GC_NOx_GL",unit="v/v")  #ground level
-        
-    if option.do_prodloss and option.geos_species != []:
-        this_dict["prodOx"] = val_record("prod_Ox",unit="molec/cm3/s") #production of Ox
-        this_dict["lossOx"] = val_record("loss_Ox",unit="molec/cm3/s") #loss of Ox       
-
     if option.do_gsc: #OMI ozone
-        this_dict["GSC"]      = val_record("OMI O3",              "molec cm-2")
-        this_dict["cloudf"]   = val_record("cloud fraction",              "")
+        this_dict["cloudf"]   = val_record("sat_cloudf",              "")
+        this_dict["GSC"]      = val_record("sat_O3",              "molec cm-2")
         if option.do_3D == False:
-            this_dict["GSC_wBC"]      = val_record("OMI O3 with bias correction","molec cm-2")
-            this_dict["BC"]      =      val_record("bias correction","molec cm-2")
-            this_dict["GSC_wBC_old"]      = val_record("OMI O3 with OLD bias correction","molec cm-2")
-            this_dict["BC_old"]      =      val_record("OLD bias correction","molec cm-2")
+            this_dict["GSC_wBC"]      = val_record("sat_O3_wBC","molec cm-2")
+            this_dict["BC"]      =      val_record("sat_BC","molec cm-2")
+
+    if option.do_prior or option.do_geos_o3_wAK: #prior
+        this_dict["prior"]    = val_record("prior",               "molec cm-2")    
     
     if option.do_MACC: #MACC ozone
-        this_dict["MACC"]     = val_record("MACC O3",             "molec cm-2")
+        this_dict["MACC"]     = val_record("macc_O3",             "molec cm-2")
     if option.do_MACC_wAK: #MACC ozone with averaging kernals
-        this_dict["MACC_wAK"] = val_record("MACC O3 with OMI AKs","molec cm-2")
-    if option.do_prior or option.do_geos_o3_wAK: #prior
-        this_dict["prior"]    = val_record("prior",               "molec cm-2")
+        this_dict["MACC_wAK"] = val_record("macc_O3_wAK_wprior","molec cm-2")
 
+    for spc in option.geos_species: #geos_chem species
+        this_dict[spc] = val_record("gc_"+spc,unit="molec cm-2") #column
+        this_dict[spc+"_GL"] = val_record("gc_"+spc+"_ground",unit="v/v") #ground level
+    if option.do_geos_nox:
+        this_dict["NOx"] = val_record("gc_NOx",unit="molec cm-2") #column
+        this_dict["NOx_GL"] = val_record("gc_NOx_ground",unit="v/v")  #ground level
+    
+    if option.do_prodloss and option.geos_species != []:
+        this_dict["prodOx"] = val_record("gc_prod_Ox",unit="molec/cm3/s") #production of Ox
+        this_dict["lossOx"] = val_record("gc_loss_Ox",unit="molec/cm3/s") #loss of Ox
+    
     if option.do_geos_o3_wAK: #GEOS-Chem ozone with averaging kernals
-        this_dict["GC_O3_wAK"] = val_record("GC_O3 with OMI AKs",  "molec cm-2")
-        
-    if option.do_geos_o3_wAK:
-        this_dict["AK"] = val_record("AKs",  "")
+        this_dict["GC_O3_wAK"] = val_record("gc_O3_wAK",  "molec cm-2")    
+        this_dict["AK"] = val_record("sat_AK",  "")
     
     return(this_dict)
 
@@ -596,29 +576,39 @@ def fillAK(AK,debug=False):
         print(this_AK)
     return this_AK
     
-def bias_correct(array,lat,date,BCs="new"):
+def bias_correct(array,lat,date,inst,vers):
     
     latbands = [-75.,-45.,-15.,15.,45.,75.]
     
-    if BCs == "new":    
-        corrs= np.multiply(
-               np.array([[-0.431,-0.911,-0.365,-3.41,  -3.51,  -2.22, -1.9,  -2.94, -4.62,  -2.82,  -3.01, -2.04 ],
+    if inst == "omi":
+        if vers == "fv0300_xc":    
+            corrs= np.multiply(
+                np.array([[-0.431,-0.911,-0.365,-3.41,  -3.51,  -2.22, -1.9,  -2.94, -4.62,  -2.82,  -3.01, -2.04 ],
                          [-5.88, -5.88, -6.6,  -3.94,  -2.58,  -2.02, -1.25, -0.336,-0.68,   1.84,   0.015,-2.9  ],
                          [-7.73, -7.53, -8.64, -7.74,  -6.68,  -5.03, -4.36, -4.15, -4.97,  -4.44,  -4.97, -6.48 ],
                          [-6.88, -8.48, -9.92, -9.04,  -7.07,  -4.73, -4.27, -4.19, -4.62,  -3.58,  -2.62, -3.49 ],
                          [-5.64, -4.86, -9.86, -6.65,  -4.51,  -2.01, -2.33, -0.923,-0.636,  0.0876,-1.09, -2.03 ],
                          [-4.24, -3.48, -5.82,  0.363,  0.0274, 0.0176,0.776, 2.69,  1.14,  -2.64,  -7.44, -4.01 ]
-                      ]),2.687e16) #in molec.cm-2
-    else:
+                         ]),2.687e16) #in molec.cm-2
+        elif vers == "fv0214" or vers == "fv0214_xc":
             corrs= np.multiply(
-               np.array([[-1.35, -1.44, -1.6 , -3.71, -3.37, -2.48, -2.26, -2.9 ,-2.57,-1.1 ,-1   ,-1.25],
+                np.array([[-1.35, -1.44, -1.6 , -3.71, -3.37, -2.48, -2.26, -2.9 ,-2.57,-1.1 ,-1   ,-1.25],
                          [-5.72, -5.7 , -5.89, -4.14, -2.97, -2.29, -2.16, -1.05,-0.67,1.46 ,-1.15,-2.52],
                          [-5.99, -5.38, -5.63, -5.04, -4.15, -2.51, -2.34, -1.74,-2.65,-1.24,-2.34,-2.79],
                          [-5.34, -6.28, -6.85, -6.4 , -5.01, -3.01, -2.95, -2.24,-2.74,-0.97,-1.27,-1.64],
                          [-6.94, -7.11, -9.69, -8.18, -6.69, -4.28, -3.18, -1.13,-1.87,-0.70,-2.79,-3.97],
                          [-9.28, -8.04, -9.02, -5.44, -6.52, -4.88, -3.36, -1.65,-2.18,-3.75,-9.05,-5.77]
-                      ]),2.687e16) #in molec.cm-2
-                  
+                         ]),2.687e16) #in molec.cm-2        
+    elif inst == "g2a":
+        corrs= np.multiply(
+               np.array([[1.55, 2.42, 3.23, 0.55, -0.82, -0.66, 0.50, 0.71, -0.06, 0.80, 1.25, 1.20],
+                         [0.02, -1.29, -2.40, -3.00, -1.56, -0.64, 0.22, 1.49, 2.05, 2.76, 1.83, 1.02],
+                         [0.47, -0.74, -1.61, -2.60, -2.58, -2.59, -1.43, -0.72, -0.12, 0.41, 1.15, 0.92],
+                         [2.27, 0.95, -0.27, -1.56, -2.27, -1.79, -0.62, 0.87, 1.28, 2.57, 3.54, 3.54],
+                         [1.80, 3.38, 2.50, 0.31, 0.23, 0.33, 0.53, 1.78, 2.64, 2.81, 2.67, 1.77],
+                         [0.44, 1.02, 3.20, 8.30, 10.17, 7.28, 4.87, 5.02, 6.55, 3.03, 0.23, 1.33]
+                         ]),2.687e16) #in molec.cm-2
+    
     corr_m = date.month-1
     
     this_month_corrs = [corrs[i][corr_m] for i in range(len(latbands))]
@@ -659,7 +649,6 @@ else:
 out_levs = [450.,170.,50.,20.,5.,2.,0.5,0.17,0.01]
 
 #create dictionary for holding results.
-
 result_dict = make_dict(option)
              
 #Begin daily loop
@@ -721,19 +710,15 @@ while this_date <= option.end_date:
         if not option.do_3D:
             accum_dict_num = len(accum_dict["GSC"].data)
             good_lats = all_lat[np.array([all_lat[k] <= option.domain[1] and all_lat[k] >= option.domain[0] for k in range(len(all_lat))])]
-            print(good_lats)
-            good_lons = all_lon[np.array([all_lon[k] <= option.domain[2] and all_lon[k] >= option.domain[3] for k in range(len(all_lon))])]
-            print(good_lons)
-            
+            #print(good_lats)
+            good_lons = all_lon[np.array([all_lon[k] >= option.domain[2] and all_lon[k] <= option.domain[3] for k in range(len(all_lon))])]
+            #print(good_lons)
+
             accum_dict["GSC_wBC"].datelist.append(accum_dict["GSC"].datelist[accum_dict_num-1]) #date
-            accum_dict["GSC_wBC_old"].datelist.append(accum_dict["GSC"].datelist[accum_dict_num-1]) #date                   
             accum_dict["BC"].datelist.append(accum_dict["GSC"].datelist[accum_dict_num-1])      #date
-            accum_dict["BC_old"].datelist.append(accum_dict["GSC"].datelist[accum_dict_num-1])      #date
             
-            accum_dict["GSC_wBC"].data.append(bias_correct(accum_dict["GSC"].data[accum_dict_num-1],good_lats,accum_dict["GSC_wBC"].datelist[accum_dict_num-1])) #bias correction for this data
-            accum_dict["GSC_wBC_old"].data.append(bias_correct(accum_dict["GSC"].data[accum_dict_num-1],good_lats,accum_dict["GSC_wBC_old"].datelist[accum_dict_num-1],BCs="old")) #bias correction for this data USING OLD VALUES
+            accum_dict["GSC_wBC"].data.append(bias_correct(accum_dict["GSC"].data[accum_dict_num-1],good_lats,accum_dict["GSC_wBC"].datelist[accum_dict_num-1],option.sat_instrument,option.ret_version)) #bias correction for this data
             accum_dict["BC"].data.append(np.subtract(accum_dict["GSC_wBC"].data[accum_dict_num-1],accum_dict["GSC"].data[accum_dict_num-1]))
-            accum_dict["BC_old"].data.append(np.subtract(accum_dict["GSC_wBC_old"].data[accum_dict_num-1],accum_dict["GSC"].data[accum_dict_num-1]))
                 
         yesterday_sat_data_dict = sat_data_dict
         #print accum_dict["GSC"].data
@@ -934,6 +919,7 @@ while this_date <= option.end_date:
                 o3_wAK_noprior = apply_AKs_grid(o3_full_profile_month_average,
                                                   accum_dict["AK"].data[AK_time_index],
                                                   pressure_bot_full_profile_month_average)[0]  #only lowest layer                            
+            
             accum_dict["GC_O3_wAK"].datelist.append(this_date)
             accum_dict["GC_O3_wAK"].data.append(o3_wAK_noprior)
             
@@ -943,19 +929,22 @@ while this_date <= option.end_date:
         #loop over everything in accum_dict, taking average over time
         for key in result_dict:
                      
+            if key == "AK":
+                continue #don't average AKs
+            
             result_dict[key].datelist.append(min(accum_dict[key].datelist)) #set date to first date recorded for this variable
             
-            #if option.mask_as_all:
-            #    data_masked = np.ma.array(accum_dict[key].data, mask = np.logical_or(np.isnan(accum_dict[key].data),np.isnan(accum_dict["GSC"].data)))
-            #else:
-            #    data_masked = np.ma.array(accum_dict[key].data, mask = np.isnan(accum_dict[key].data))
-            
-            #time_av_result = np.ma.average(data_masked,axis=0) #average over time dimension
-            time_av_result = np.average(accum_dict[key].data,axis=0) #average over time dimension, strict nan corruption
-            #time_av_result = np.where(time_av_result==0.,np.nan,time_av_result) #exact zeros are null points
-            
-            print(key)
-            print(time_av_result.shape)
+            if option.mask_as_all:
+                data_masked = np.ma.array(accum_dict[key].data, mask = np.logical_or(np.isnan(accum_dict[key].data),np.isnan(accum_dict["GSC"].data)),fill_value=np.nan)
+            else:
+                data_masked = np.ma.array(accum_dict[key].data, mask = np.isnan(accum_dict[key].data),fill_value=np.nan)
+           
+            data_masked_filled = data_masked.filled()
+            time_av_result = np.nanmean(data_masked_filled,axis=0) #average over time dimension
+            #time_av_result = np.average(accum_dict[key].data,axis=0) #average over time dimension, strict nan corruption
+
+            #print(key)
+            #print(time_av_result.shape)
             
             result_dict[key].data.append(time_av_result)
             
@@ -963,7 +952,7 @@ while this_date <= option.end_date:
     
     this_date += td(days=1)
 
-print(result_dict)
+#print(result_dict)
 
 #latitudes and longitudes
 if use_mod_data and use_sat_data:
@@ -977,14 +966,10 @@ else:
     lon_for_nc = good_lons
 
 if option.do_geos_o3_wAK: #add in priors
-    result_dict["GC_O3_wAK_wprior"] = val_record("GEOS O3 with OMI AKs inc prior","molec cm-2")
+    result_dict["GC_O3_wAK_wprior"] = val_record("gc_O3_wAK_wprior","molec cm-2")
     result_dict["GC_O3_wAK_wprior"].datelist = result_dict["GC_O3_wAK"].datelist
     result_dict["GC_O3_wAK_wprior"].data = np.add(result_dict["GC_O3_wAK"].data,result_dict["prior"].data)
     
-    #result_dict["GC_O3_wAK_SUBprior"] = val_record("GEOS O3 with OMI AKs SUB prior","molec cm-2")
-    #result_dict["GC_O3_wAK_SUBprior"].datelist = result_dict["GC_O3_wAK"].datelist
-    #result_dict["GC_O3_wAK_SUBprior"].data = np.subtract(result_dict["GC_O3_wAK"].data,result_dict["prior"].data)
-
 if option.do_gsc and not option.do_3D: #do bias correction
     print("doing bias correction")
 
@@ -1036,7 +1021,7 @@ for key in result_dict:
         first = False  #don't do this again
     
     #create dataset
-    print(key)
+    #print(key)
     if len(np.array(result_dict[key].data).shape) == 4: #if its a 3D variable
         nc_var = dataset.createVariable(result_dict[key].name, np.float32, ('time','lev','lat','lon'))
         nc_var.units = result_dict[key].unit
@@ -1049,5 +1034,3 @@ for key in result_dict:
         nc_var.units = result_dict[key].unit
         nc_var[:,:,:] = result_dict[key].data
         
-        if key == "lossOx":
-            print(result_dict[key].data)
