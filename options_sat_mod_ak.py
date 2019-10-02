@@ -24,6 +24,8 @@ class opts:
            start_date,end_date,
            cycle_type,
            domain,
+           sat_instrument,
+           ret_version,
            sat_time_res,
            do_gsc,do_MACC,do_MACC_wAK,do_prior,
            geos_species,
@@ -38,6 +40,8 @@ class opts:
         self.end_date        = end_date
         self.cycle_type      = cycle_type
         self.domain          = domain
+        self.sat_instrument  = sat_instrument
+        self.ret_version     = ret_version
         self.sat_time_res    = sat_time_res
         self.mask_as_all     = mask_as_all
         self.do_gsc          = do_gsc
@@ -59,34 +63,40 @@ def get_options():
     print("Reading options from options_sat_mod_ak.py")
     #==Date and time==
 
-    start_date = dt(2016, 1,   1) #first date          :: (YYYY,MM,DD)
-    end_date   = dt(2016, 1,  31) #end date (inclusive):: (YYYY,MM,DD)
+    start_date = dt(2016, 1,   1) #Start date          :: (YYYY,MM,DD)
+    end_date   = dt(2016, 1,  31) #End date (inclusive):: (YYYY,MM,DD)
 
     #==Output options==
-    cycle_type = "month"         #Time resolution of output. Options are:
-                               #"all"   -> take average of all data between start_date and end_date
-                               #"season"-> take averages for seasons, JFM AMJ JAS OND
-                               #"month" -> take averages for indvididual months
+    cycle_type = "month"       #Time resolution of output:
+                               #"month" -> take averages for individual months
                                #"day"   -> produce output on daily resolution
 
     #domain
-    domain = [-11.,55.,60.,150.]  #Spatial span of output. In format [south, north, west, east] degrees 
+    domain = [-11.,55.,60.,150.]  #Spatial span of output in format [south, north, west, east] degrees 
 
     #satellite options
-    sat_time_res = "m"         #Temporal resolution of satellite file input.
-                               #options are "m"=monthly, and "d"=daily
-                               
-    mask_as_all = True         #mask all data as the satellite is masked
-                               
-    do_gsc = True              #main retrived o3 column
-    do_MACC= True              #Output from the MACC model
-    do_MACC_wAK = True         #Output from the MACC model after AK application
-    do_prior = True            #Output the prior
+    sat_instrument = "omi"     #Choice of satellite instrument: options are "omi" and "g2a" 
+    ret_version = "fv0300_xc"  #Retrieval versions:
+                               #OMI -> "fv0214", "fv0214_xc" or "fv0300_xc"
+                               #G2A -> "fv0300" only 
 
-    #model options
+    sat_time_res = "m"         #Temporal resolution of satellite file input
+                               #Options are "m"=monthly, and "d"=daily
+                               #Monthly available for all instruments and retrieval versions
+                               #Daily only available for OMI fv0214
+                               
+    mask_as_all = True         #Mask all data as the satellite is masked
+                               #For computing averages
+                               
+    do_gsc = True              #Process the retrieved o3 column
+    do_MACC= True              #Process output from the MACC model
+    do_MACC_wAK = True         #Process output from the MACC model after AK application
+    do_prior = True            #Apply the prior
+
+    #Model options
     
-    #list species to read-in, with their GEOS-Chem names.
-    #make list empty to do no model 
+    #List species to read in, using their GEOS-Chem names.
+    #Make list empty to do no model 
     geos_species = [
                     "O3"
                    # "NO",
@@ -95,38 +105,49 @@ def get_options():
                    # "CH2O"
                    ]                 
     
-    #production-loss
+    #Production-loss
     do_prodloss = False
-    prodloss_path = '/geos/d21/lsurl/geos11_runs/geosfp_025x03125_tropchem_ch/rate.YYYYMMDD'
+    prodloss_path = '/path_to_gc_prodloss_dir/rate.YYYYMMDD'
     
-    #special species
+    #Special species
     do_geos_nox = False           #Output "pure" GEOS-Chem tropospheric NOx (sum of NO and NO2)
-    do_geos_o3_wAK = True       #Apply satellite AKs to GEOS-Chem O3                
+    do_geos_o3_wAK = True         #Apply satellite AKs to GEOS-Chem O3                
     
-    #do 3D - whether to return 3D fields of model output and satellite retrieval
+    #Choose whether to return 3D fields of model output and satellite retrieval
     do_3D = False
                             
     #==Data locations==
     #YYYYMMMDD, YYYYMM and YYYYY will be replaced in model processing 
     #Path of model data
-    mod_data_path = "/home/users/mmarvin/geoschem/outputs/nested_as_2016/ND51/ts_satellite.YYYYMMDD.bpch"
-    if sat_time_res == "m":
-        #Path of MONTHLY satellite data
-        sat_data_path = '/gws/nopw/j04/nceo_generic/nceo_ral/ozone_omi_lv2fv0300_lv3fv0100.xc01/monthly_lag-90_90_1.5_log-180_180_1.5/YYYY/o3p_bvm_YYYYMMXX_omi_MACC_l2fv0300_l3fv0100_mcef0.2_sza80_mcost120_lzr_omfra2_xtxscp_ak_xtcor1.str'
-        #sat_data_path = '/gws/nopw/j04/nceo_generic/nceo_ral/ozone_omi_lv2fv0214_lv3fv0100.xc01/monthly_lag-90_90_1.5_log-180_180_1.5/YYYY/o3p_bvm_YYYYMMXX_omi_MACC_l2fv0214_l3fv0100_mcef0.2_sza80_mcost120_lzr_omfra2_xtxscp_ak_xtcor1.str' 
-        #sat_data_path = '/gws/nopw/j04/nceo_generic/nceo_ral/ozone_omi_fv0214/monthly_lag-90_90_2.5_log-180_180_2.5/YYYY/o3p_bin_vs_model_YYYYMMXX_MACC_mcef0.2_sza80_mcost120_mcb1_lzr_omfra_ak.str'
-    elif sat_time_res =="d":
-        #Path of DAILY satellite data
-        sat_data_path = '/gws/nopw/j04/nceo_generic/nceo_ral/ozone_omi_fv0214/daily_lag-90_90_2.5_log-180_180_2.5/YYYYMM/o3p_bin_vs_model_YYYYMMDD_MACC_mcef0.2_sza80_mcost120_mcb1_lzr_omfra_ak.str'
-    
-    #==save location, and file prefic==
-    
-    sav_pre = "./gc_omi" #add nc file prefix. Add path if not wanting to save in working directory. The rest of the filename will be the date span (from start_date to end_date)
+    if sat_instrument == "omi":
+        mod_data_path = "/home/users/mmarvin/geoschem/nested_as_2016/ND51/ts_satellite_pm.YYYYMMDD.bpch"
+    else:
+        mod_data_path = "/home/users/mmarvin/geoschem/nested_as_2016/ND51/ts_satellite_am.YYYYMMDD.bpch"
+
+    #Path of satellite data
+    if sat_instrument == "omi":
+        if ret_version == "fv0214":
+            if sat_time_res == "m":
+                sat_data_path = '/gws/nopw/j04/nceo_generic/nceo_ral/ozone_omi_fv0214/monthly_lag-90_90_2.5_log-180_180_2.5/YYYY/o3p_bin_vs_model_YYYYMMXX_MACC_mcef0.2_sza80_mcost120_mcb1_lzr_omfra_ak.str'
+            elif sat_time_res == "d":
+                sat_data_path = '/gws/nopw/j04/nceo_generic/nceo_ral/ozone_omi_fv0214/daily_lag-90_90_2.5_log-180_180_2.5/YYYYMM/o3p_bin_vs_model_YYYYMMDD_MACC_mcef0.2_sza80_mcost120_mcb1_lzr_omfra_ak.str'
+        elif ret_version == "fv0214_xc":
+            sat_data_path = '/gws/nopw/j04/nceo_generic/nceo_ral/ozone_omi_lv2fv0214_lv3fv0100.xc01/monthly_lag-90_90_1.5_log-180_180_1.5/YYYY/o3p_bvm_YYYYMMXX_omi_MACC_l2fv0214_l3fv0100_mcef0.2_sza80_mcost120_lzr_omfra2_xtxscp_ak_xtcor1.str'
+        else:
+            sat_data_path = '/gws/nopw/j04/nceo_generic/nceo_ral/ozone_omi_lv2fv0300_lv3fv0100.xc01/monthly_lag-90_90_1.5_log-180_180_1.5/YYYY/o3p_bvm_YYYYMMXX_omi_MACC_l2fv0300_l3fv0100_mcef0.2_sza80_mcost120_lzr_omfra2_xtxscp_ak_xtcor1.str'
+    else:
+        sat_data_path = '/gws/nopw/j04/nceo_generic/nceo_ral/ozone_gome2a_fv0300/monthly_lag-90_90_2.5_log-180_180_2.5/gome2_metopa/latest_processing/gome2_metopa-rat16-cclev2-saap-lin-lip-cat4-af0-kfk-cmacc-nkd-pcbira-salbv2-salbrat1-cxt2-ecm-eci-sfg2s-rsfw8-ng37-pol7-sc10-noxfr-ch2o15-tglin-i0off-retpoly-s5xs-sckxs-ring4-smcl2-mplap-g2lk-nomr-cci-newfm2b-b2leak-dxs2-0p006-cgo2-superg/YYYY/o3p_bvm_YYYYMMXX_g2a_MACC_mcef0.2_sza80_mcost120_ak.str'
+
+    #==save location, and file prefix==
+    #Set save file prefix. The rest of the filename will be the date span (from start_date to end_date).
+    sav_pre = "./gc_"+sat_instrument+"_"+ret_version
     
     return(
            start_date,end_date,
            cycle_type,
            domain,
+           sat_instrument,
+           ret_version,
            sat_time_res,
            do_gsc,do_MACC,do_MACC_wAK,do_prior,
            geos_species,
@@ -145,6 +166,8 @@ def check_options_valid(options):
     start_date,end_date,
     cycle_type,
     domain,
+    sat_instrument,
+    ret_version,
     sat_time_res,
     do_gsc,do_MACC,do_MACC_wAK,do_prior,
     geos_species,
@@ -158,6 +181,8 @@ def check_options_valid(options):
     options.start_date,options.end_date,
     options.cycle_type,
     options.domain,
+    options.sat_instrument,
+    options.ret_version,
     options.sat_time_res,
     options.do_gsc,options.do_MACC,options.do_MACC_wAK,options.do_prior,
     options.geos_species,
@@ -215,7 +240,20 @@ def check_options_valid(options):
 
     if use_sat_data: #following checks only relevant *if* satellite data is used
 
+        if sat_instrument != "omi" and sat_instrument != "g2a":
+            print("OPTIONS ERROR - FATAL: Selected satellite instrument is not currently supported.")
+            major_error += 1
+        if ret_version != "fv0214" and ret_version != "fv0214_xc" and ret_version != "fv0300" and ret_version != "fv0300_xc":
+            print("OPTIONS ERROR - FATAL: Selected retrieval version is not currently supported.")
+            major_error += 1
+        if (sat_instrument == "omi" and ret_version == "fv0300") or (sat_instrument == "g2a" and ret_version != "fv0300"):
+            print("OPTIONS ERROR - FATAL: Selected retrieval version is not compatible with selected satellite instrument.")
+            major_error += 1
+
         #time resolution of satellite input data vs. start date and end date
+        if sat_time_res == "d" and (sat_instrument != "omi" or ret_version != "fv0214"):
+            print("OPTIONS ERROR - FATAL: Daily input is not available for selected satellite instrument and retrieval version.")
+            major_error += 1
         if sat_time_res == "m" and start_date.day != 1:
             print("OPTIONS ERROR - FATAL: Monthly input is used, but start_date (%s) is not at the start of a month." %(start_date.strftime("%Y%m%d")))
             major_error += 1
